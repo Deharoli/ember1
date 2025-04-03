@@ -1,0 +1,252 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String            @id @default(uuid())
+  email             String            @unique
+  username          String            @unique
+  password          String            // Sera chiffré avec bcrypt
+  fullName          String?
+  bio               String?           @db.Text
+  avatarUrl         String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  
+  // Relations
+  posts             Post[]
+  timeCapsules      TimeCapsule[]     @relation("UserTimeCapsules")
+  timeCapsulesSent  TimeCapsule[]     @relation("SenderTimeCapsules")
+  receivedCapsules  TimeCapsule[]     @relation("ReceiverTimeCapsules")
+  sentMessages      Message[]         @relation("SenderMessages")
+  receivedMessages  Message[]         @relation("ReceiverMessages")
+  reactions         Reaction[]
+  comments          Comment[]
+  followers         Follow[]          @relation("FollowingUser")
+  following         Follow[]          @relation("FollowerUser")
+  privacySettings   PrivacySettings?
+
+  // Pour les matchs émotionnels
+  matchesAsUser1    Match[]           @relation("User1Matches")
+  matchesAsUser2    Match[]           @relation("User2Matches")
+  
+  // Pour les groupes d'amis
+  bestFriends       BestFriendsList?  
+  belongsToBestFriendsList BestFriendsEntry[]
+}
+
+model PrivacySettings {
+  id                String    @id @default(uuid())
+  userId            String    @unique
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Paramètres de confidentialité
+  postVisibility    Visibility @default(FRIENDS)
+  profileVisibility Visibility @default(PUBLIC)
+  messagePermission MessagePermission @default(FRIENDS)
+  allowAnonymousViews Boolean   @default(false)
+  silenceMode       Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+enum Visibility {
+  PUBLIC     // Visible par tous
+  FRIENDS    // Visible uniquement par les amis
+  BESTFRIENDS // Visible uniquement par les meilleurs amis
+  PRIVATE    // Visible uniquement par l'utilisateur
+}
+
+enum MessagePermission {
+  EVERYONE   // Tout le monde peut envoyer des messages
+  FRIENDS    // Seulement les amis peuvent envoyer des messages
+  NOBODY     // Personne ne peut envoyer des messages
+}
+
+model Post {
+  id          String    @id @default(uuid())
+  content     String    @db.Text
+  mediaUrl    String?   // URL de la vidéo/audio si présent
+  mediaType   MediaType?
+  musicUrl    String?   // URL de la musique de fond si présente
+  
+  // Métadonnées
+  isStrongEmotion Boolean @default(false)
+  visibility     Visibility @default(FRIENDS)
+  createdAt      DateTime @default(now())
+  scheduledFor   DateTime?
+  
+  // Relations
+  authorId       String
+  author         User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  emotions       Emotion[]
+  reactions      Reaction[]
+  comments       Comment[]
+  
+  // Tags émotionnels
+  emotionalTags  EmotionalTag[]
+}
+
+model EmotionalTag {
+  id        String  @id @default(uuid())
+  name      String
+  
+  // Relations
+  posts     Post[]
+}
+
+enum MediaType {
+  TEXT
+  IMAGE
+  VIDEO
+  AUDIO
+}
+
+model Emotion {
+  id        String  @id @default(uuid())
+  name      String  // joie, tristesse, colère, etc.
+  color     String  // Code couleur hexadécimal
+  
+  // Relations
+  posts     Post[]
+}
+
+model Reaction {
+  id        String    @id @default(uuid())
+  type      String    // emoji, texte, etc.
+  content   String?   // Contenu de la réaction
+  mediaUrl  String?   // URL de la réaction vidéo/audio si présente
+  mediaType MediaType?
+  
+  // Relations
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  postId    String
+  post      Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime  @default(now())
+  
+  @@unique([userId, postId]) // Un utilisateur ne peut avoir qu'une réaction par post
+}
+
+model Comment {
+  id        String    @id @default(uuid())
+  content   String    @db.Text
+  mediaUrl  String?   // URL du commentaire vidéo/audio si présent
+  mediaType MediaType?
+  
+  // Relations
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  postId    String
+  post      Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  
+  // Métadonnées
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model TimeCapsule {
+  id              String    @id @default(uuid())
+  content         String    @db.Text
+  mediaUrl        String?   // URL de la vidéo/audio si présent
+  mediaType       MediaType?
+  
+  // Conditions d'ouverture
+  openDate        DateTime
+  autoDestruct    Boolean   @default(false)
+  opened          Boolean   @default(false)
+  openedAt        DateTime?
+  
+  // Relations
+  creatorId       String
+  creator         User      @relation("UserTimeCapsules", fields: [creatorId], references: [id], onDelete: Cascade)
+  
+  // Pour les capsules envoyées à d'autres utilisateurs
+  senderId        String?
+  sender          User?     @relation("SenderTimeCapsules", fields: [senderId], references: [id])
+  receiverId      String?
+  receiver        User?     @relation("ReceiverTimeCapsules", fields: [receiverId], references: [id])
+  
+  // Métadonnées
+  visibility      Visibility @default(PRIVATE)
+  createdAt       DateTime  @default(now())
+}
+
+model Message {
+  id              String    @id @default(uuid())
+  content         String    @db.Text
+  mediaUrl        String?   // URL de la vidéo/audio si présent
+  mediaType       MediaType?
+  
+  // Paramètres de message
+  isEphemeral     Boolean   @default(false)  // Mode "Regard Unique"
+  isViewed        Boolean   @default(false)
+  viewedAt        DateTime?
+  
+  // Relations
+  senderId        String
+  sender          User      @relation("SenderMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId      String
+  receiver        User      @relation("ReceiverMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+  
+  // Métadonnées
+  createdAt       DateTime  @default(now())
+}
+
+model Follow {
+  id              String    @id @default(uuid())
+  followerId      String
+  follower        User      @relation("FollowerUser", fields: [followerId], references: [id], onDelete: Cascade)
+  followingId     String
+  following       User      @relation("FollowingUser", fields: [followingId], references: [id], onDelete: Cascade)
+  
+  // Métadonnées
+  createdAt       DateTime  @default(now())
+  
+  @@unique([followerId, followingId])
+}
+
+model Match {
+  id              String    @id @default(uuid())
+  user1Id         String
+  user1           User      @relation("User1Matches", fields: [user1Id], references: [id], onDelete: Cascade)
+  user2Id         String
+  user2           User      @relation("User2Matches", fields: [user2Id], references: [id], onDelete: Cascade)
+  
+  // Métadonnées sur le match (basé sur des émotions similaires)
+  matchType       String    // Type de match (émotionnel, intérêts, etc.)
+  matchStrength   Float     // Force du match (0-1)
+  createdAt       DateTime  @default(now())
+  
+  @@unique([user1Id, user2Id])
+}
+
+// Pour gérer les listes d'amis proches (Best Friends)
+model BestFriendsList {
+  id              String    @id @default(uuid())
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entries         BestFriendsEntry[]
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model BestFriendsEntry {
+  id              String    @id @default(uuid())
+  listId          String
+  list            BestFriendsList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  friendId        String
+  friend          User      @relation(fields: [friendId], references: [id], onDelete: Cascade)
+  addedAt         DateTime  @default(now())
+  
+  @@unique([listId, friendId])
+}
